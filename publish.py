@@ -178,6 +178,36 @@ def _same_local_day(created_at: datetime, target_local_date: str) -> bool:
     return created_at.astimezone(ZoneInfo("Asia/Beirut")).date().isoformat() == target_local_date
 
 
+def check_x_access(env: Dict[str, str]) -> Dict[str, str]:
+    """Verify X credentials and read access without creating or modifying any post."""
+    missing = get_missing_secrets(env)
+    if missing:
+        raise RuntimeError(
+            "Missing required credentials in environment: " + ", ".join(missing)
+        )
+
+    client = _create_client(env)
+    me = client.get_me(user_fields=["username"], user_auth=True)
+    user = getattr(me, "data", None)
+    user_id = getattr(user, "id", None)
+    if not user_id:
+        raise RuntimeError("X authentication succeeded but the account ID was not returned.")
+
+    # This endpoint specifically tests permission to read the authenticated user's posts.
+    client.get_users_tweets(
+        id=user_id,
+        max_results=5,
+        tweet_fields=["created_at"],
+        exclude=["replies", "retweets"],
+        user_auth=True,
+    )
+    return {
+        "status": "x_read_check_passed",
+        "x_user_id": str(user_id),
+        "x_username": str(getattr(user, "username", "")),
+    }
+
+
 def tweet_already_exists_today(
     client: tweepy.Client, expected_text: str, target_local_date: str
 ) -> Optional[bool]:
@@ -316,8 +346,18 @@ def main() -> None:
         action="store_true",
         help="Validate and select without posting to X or changing state.",
     )
+    parser.add_argument(
+        "--check-x",
+        action="store_true",
+        help="Check X authentication and read access without posting.",
+    )
 
     args = parser.parse_args()
+    if args.check_x:
+        result = check_x_access(dict(os.environ))
+        for key, value in result.items():
+            print(f"{key}={value}")
+        return
     dry_run = args.dry_run or os.environ.get("DRY_RUN", "").lower() in {
         "1",
         "true",
