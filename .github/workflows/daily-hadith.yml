@@ -10,6 +10,11 @@ on:
         description: "Run validation only without posting to X"
         required: false
         default: "false"
+      check_x:
+        description: "Check X authentication and read access without posting"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -42,14 +47,16 @@ jobs:
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
         run: |
-          if [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ]; then
+          if [ "${{ inputs.check_x }}" = "true" ]; then
+            python publish.py --check-x
+          elif [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ]; then
             python publish.py --dry-run
           else
             python publish.py
           fi
 
       - name: Commit updated publication state
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+        if: ${{ github.event.inputs.dry_run != 'true' && inputs.check_x != true }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
