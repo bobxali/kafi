@@ -180,12 +180,13 @@ def _same_local_day(created_at: datetime, target_local_date: str) -> bool:
 
 def tweet_already_exists_today(
     client: tweepy.Client, expected_text: str, target_local_date: str
-) -> bool:
+) -> Optional[bool]:
+    """Return None if X cannot be checked; callers must fail closed in that case."""
     try:
         me = client.get_me(user_auth=True)
         user_id = getattr(getattr(me, "data", None), "id", None)
         if not user_id:
-            return False
+            return None
 
         tweets_response = client.get_users_tweets(
             id=user_id,
@@ -203,7 +204,7 @@ def tweet_already_exists_today(
                 if _same_local_day(created_at, target_local_date):
                     return True
     except Exception:
-        return False
+        return None
 
     return False
 
@@ -252,7 +253,13 @@ def publish_hadith(
 
     posted = False
     tweet_id = ""
-    if tweet_already_exists_today(client, text, local_date):
+    duplicate_check = tweet_already_exists_today(client, text, local_date)
+    if duplicate_check is None:
+        raise RuntimeError(
+            "Could not verify whether today's hadith was already published; "
+            "refusing to post to avoid a duplicate. Check X API read access and retry."
+        )
+    if duplicate_check:
         posted = True
     else:
         try:
@@ -262,8 +269,17 @@ def publish_hadith(
                 tweet_id = str(tweet_data.get("id", ""))
             posted = True
         except Exception as error:
-            if tweet_already_exists_today(client, text, local_date):
+            duplicate_check_after_error = tweet_already_exists_today(
+                client, text, local_date
+            )
+            if duplicate_check_after_error is True:
                 posted = True
+            elif duplicate_check_after_error is None:
+                raise RuntimeError(
+                    "X returned an error while posting, and the follow-up check also "
+                    "failed. The post may or may not have been published; inspect the "
+                    "X profile before retrying to avoid a duplicate."
+                ) from error
             else:
                 raise RuntimeError(f"Failed to publish hadith to X: {error}") from error
 
