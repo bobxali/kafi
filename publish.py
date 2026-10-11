@@ -9,7 +9,8 @@ from zoneinfo import ZoneInfo
 
 import tweepy
 
-X_CHARACTER_LIMIT = 280
+# Use a conservative limit so the complete hadith fits comfortably within X's post limit.
+X_CHARACTER_LIMIT = 250
 REQUIRED_SECRETS = [
     "X_API_KEY",
     "X_API_SECRET",
@@ -141,9 +142,17 @@ def get_missing_secrets(env: Dict[str, str]) -> List[str]:
 
 
 def select_hadith(hadiths: List[Hadith], state: Dict[str, object]) -> Hadith:
-    next_index = int(state.get("next_index", 0))
-    index = next_index % len(hadiths)
-    return hadiths[index]
+    """Select the next complete hadith that fits safely in a single X post."""
+    start_index = int(state.get("next_index", 0)) % len(hadiths)
+
+    for offset in range(len(hadiths)):
+        candidate = hadiths[(start_index + offset) % len(hadiths)]
+        if len(candidate.text.strip()) <= X_CHARACTER_LIMIT:
+            return candidate
+
+    raise RuntimeError(
+        f"No hadith is short enough to publish (limit: {X_CHARACTER_LIMIT} characters)."
+    )
 
 
 def _create_client(env: Dict[str, str]) -> tweepy.Client:
@@ -251,7 +260,8 @@ def publish_hadith(
     if posted:
         state["published_by_date"][local_date] = selected.hadith_id
         state["published_order"].append(selected.hadith_id)
-        state["next_index"] = (int(state["next_index"]) + 1) % len(hadiths)
+        # Resume after the hadith actually published, skipping any long entries.
+        state["next_index"] = (hadiths.index(selected) + 1) % len(hadiths)
         save_state(state_path, state)
 
     return {
