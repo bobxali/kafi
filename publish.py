@@ -141,17 +141,27 @@ def get_missing_secrets(env: Dict[str, str]) -> List[str]:
     return [name for name in REQUIRED_SECRETS if not env.get(name)]
 
 
+def format_post_text(hadith: Hadith) -> str:
+    """Format the complete hadith with its source and hadith number."""
+    source = (
+        f"المصدر: الكافي، ج {hadith.volume}، "
+        f"{hadith.book}، ح {hadith.hadith_number}"
+    )
+    return f"{hadith.text.strip()}\n\n{source}"
+
+
 def select_hadith(hadiths: List[Hadith], state: Dict[str, object]) -> Hadith:
-    """Select the next complete hadith that fits safely in a single X post."""
+    """Select the next complete formatted hadith that fits in one X post."""
     start_index = int(state.get("next_index", 0)) % len(hadiths)
 
     for offset in range(len(hadiths)):
         candidate = hadiths[(start_index + offset) % len(hadiths)]
-        if len(candidate.text.strip()) <= X_CHARACTER_LIMIT:
+        if len(format_post_text(candidate)) <= X_CHARACTER_LIMIT:
             return candidate
 
     raise RuntimeError(
-        f"No hadith is short enough to publish (limit: {X_CHARACTER_LIMIT} characters)."
+        "No complete hadith with its source and number fits "
+        f"within {X_CHARACTER_LIMIT} characters."
     )
 
 
@@ -222,7 +232,7 @@ def publish_hadith(
         }
 
     selected = select_hadith(hadiths, state)
-    text = validate_post_text(selected.text)
+    text = validate_post_text(format_post_text(selected))
 
     if dry_run:
         return {
@@ -308,6 +318,10 @@ def main() -> None:
     print(f"status={result['status']}")
     print(f"date={result['date']}")
     print(f"hadith_id={result['hadith_id']}")
+    if "text" in result:
+        print("post_text_begin")
+        print(result["text"])
+        print("post_text_end")
     if "tweet_id" in result and result["tweet_id"]:
         print(f"tweet_id={result['tweet_id']}")
 
